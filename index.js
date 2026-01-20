@@ -132,7 +132,7 @@ function buildTagNameRichText(entry) {
 
   let inner;
   if (entry.Rainbow) inner = rainbowText(text);
-  else if (hex1 ~= hex2) inner = gradientText(text, hex1, hex2);
+ else if (hex1 !== hex2) inner = gradientText(text, hex1, hex2);
   else inner = `<font color="${hex1}">${escapeLua(text)}</font>`;
 
   if (entry.Bold) inner = `<b>${inner}</b>`;
@@ -313,3 +313,4 @@ client.on("interactionCreate", async (i) => {
     console.error("Startup error:", e);
   }
 })();
+
