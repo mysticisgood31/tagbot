@@ -33,6 +33,7 @@ function writeJsonObject(filePath, obj) {
   fs.writeFileSync(filePath, JSON.stringify(obj, null, 2), "utf8");
 }
 
+
 function validateRGBString(s) {
   const parts = String(s).split(",").map((p) => p.trim());
   if (parts.length !== 3) return null;
@@ -86,13 +87,13 @@ function gradientText(text, c1, c2) {
 }
 
 function hsvToHex(h) {
-
   const hh = h * 6;
   const c = 1;
   const x = c * (1 - Math.abs((hh % 2) - 1));
   let r = 0,
     g = 0,
     b = 0;
+
   if (hh < 1) [r, g, b] = [c, x, 0];
   else if (hh < 2) [r, g, b] = [x, c, 0];
   else if (hh < 3) [r, g, b] = [0, c, x];
@@ -131,7 +132,7 @@ function buildTagNameRichText(entry) {
 
   let inner;
   if (entry.Rainbow) inner = rainbowText(text);
-  else if (hex1 !== hex2) inner = gradientText(text, hex1, hex2);
+  else if (hex1 ~= hex2) inner = gradientText(text, hex1, hex2);
   else inner = `<font color="${hex1}">${escapeLua(text)}</font>`;
 
   if (entry.Bold) inner = `<b>${inner}</b>`;
@@ -163,6 +164,13 @@ app.listen(PORT, () => console.log("Web server running on port", PORT));
 
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+function okEmbed(msg) {
+  return new EmbedBuilder().setDescription(`✅ ${msg}`).setColor(0x00ff00);
+}
+function errEmbed(msg) {
+  return new EmbedBuilder().setDescription(`❌ ${msg}`).setColor(0xff0000);
+}
 
 const commands = [
   new SlashCommandBuilder()
@@ -203,14 +211,14 @@ const commands = [
           o.setName("rainbow").setDescription("Rainbow per-letter (true/false)")
         )
     ),
-].map((c) => c.toJSON());
 
-function okEmbed(msg) {
-  return new EmbedBuilder().setDescription(` ${msg}`).setColor(0x00ff00);
-}
-function errEmbed(msg) {
-  return new EmbedBuilder().setDescription(` ${msg}`).setColor(0xff0000);
-}
+  new SlashCommandBuilder()
+    .setName("removecrewtag")
+    .setDescription("Remove a crew (group) tag")
+    .addIntegerOption((o) =>
+      o.setName("groupid").setDescription("Roblox GroupId").setRequired(true)
+    ),
+].map((c) => c.toJSON());
 
 async function registerCommands() {
   if (!process.env.DISCORD_TOKEN || !process.env.CLIENT_ID || !process.env.GUILD_ID) {
@@ -231,45 +239,68 @@ client.on("ready", () => {
 
 client.on("interactionCreate", async (i) => {
   if (!i.isChatInputCommand()) return;
-  if (i.commandName !== "createtag") return;
 
-  const sub = i.options.getSubcommand(true);
-  if (sub !== "crew") return;
 
-  const groupId = i.options.getInteger("groupid", true);
-  const tag = i.options.getString("tag", true);
+  if (i.commandName === "createtag") {
+    const sub = i.options.getSubcommand(true);
+    if (sub !== "crew") return;
 
-  const color = validateRGBString(i.options.getString("color", true));
-  const color2 = validateRGBString(i.options.getString("color2", true));
-  if (!color || !color2) {
+    const groupId = i.options.getInteger("groupid", true);
+    const tag = i.options.getString("tag", true);
+
+    const color = validateRGBString(i.options.getString("color", true));
+    const color2 = validateRGBString(i.options.getString("color2", true));
+    if (!color || !color2) {
+      return i.reply({
+        embeds: [errEmbed('Invalid RGB. Use like "0, 0, 139" (0-255).')],
+        ephemeral: true,
+      });
+    }
+
+    const entry = {
+      Tag: tag,
+      Color: color,
+      Color2: color2,
+      Bold: i.options.getBoolean("bold") ?? false,
+      Italic: i.options.getBoolean("italic") ?? false,
+      Rainbow: i.options.getBoolean("rainbow") ?? false,
+    };
+
+    const tags = readJsonObject(GROUP_TAGS_PATH);
+    tags[String(groupId)] = {
+      order: 0,
+      requiredRank: 1,
+      tagName: buildTagNameRichText(entry),
+      tagStyle: "Discord",
+    };
+    writeJsonObject(GROUP_TAGS_PATH, tags);
+
     return i.reply({
-      embeds: [errEmbed('Invalid RGB. Use like "0, 0, 139" (0-255).')],
-      ephemeral: true,
+      embeds: [okEmbed(`Crew tag saved for Group ID ${groupId}. Roblox will auto-sync.`)],
+      ephemeral: false,
     });
   }
 
-  const entry = {
-    Tag: tag,
-    Color: color,
-    Color2: color2,
-    Bold: i.options.getBoolean("bold") ?? false,
-    Italic: i.options.getBoolean("italic") ?? false,
-    Rainbow: i.options.getBoolean("rainbow") ?? false,
-  };
 
-  const tags = readJsonObject(GROUP_TAGS_PATH);
-  tags[String(groupId)] = {
-    order: 0,
-    requiredRank: 1,
-    tagName: buildTagNameRichText(entry),
-    tagStyle: "Discord",
-  };
-  writeJsonObject(GROUP_TAGS_PATH, tags);
+  if (i.commandName === "removecrewtag") {
+    const groupId = i.options.getInteger("groupid", true);
 
-  return i.reply({
-    embeds: [okEmbed(`Crew tag saved for Group ID ${groupId}. Roblox will auto-sync.`)],
-    ephemeral: false,
-  });
+    const tags = readJsonObject(GROUP_TAGS_PATH);
+    if (!tags[String(groupId)]) {
+      return i.reply({
+        embeds: [errEmbed(`No crew tag found for Group ID ${groupId}.`)],
+        ephemeral: true,
+      });
+    }
+
+    delete tags[String(groupId)];
+    writeJsonObject(GROUP_TAGS_PATH, tags);
+
+    return i.reply({
+      embeds: [okEmbed(`Crew tag removed for Group ID ${groupId}. Roblox will auto-sync.`)],
+      ephemeral: false,
+    });
+  }
 });
 
 
